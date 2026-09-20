@@ -48,7 +48,19 @@ $env:DEVKIT_ARGS='all'; irm https://cdn.jsdelivr.net/gh/jianghuifr/install@main/
 >
 > **`install.cmd` 不在 CDN 清单里**：jsDelivr 出于安全策略拒绝代理 `.cmd` / `.bat`（返回 HTTP 403），所以 `manifest.sha256` 不收录它，走 CDN 的引导不会拉这个文件（Windows 下直接用 `install.ps1` 即可）。想要双击入口就用 GitHub 的 Download ZIP 或 Pages 手动下载。
 >
-> **版本固定**：`@main` 是分支，CDN 有小时级缓存（改了可能要等一会儿生效）；要稳定复现就用 tag，例如 `@v1.0.1`（tag 路径基本永久缓存）。
+> **版本固定**：`@main` 是分支，CDN 有小时级缓存（改了可能要等一会儿生效）；要稳定复现就用 tag，例如 `@v1.0.1`（tag 路径基本永久缓存）。两种固定方式：
+> ```bash
+> # 方式一：单文件自解压（版本天然固定，内容就在这个文件里）
+> curl -fsSL https://cdn.jsdelivr.net/gh/jianghuifr/install@v1.0.1/dist/devkit-standalone.sh | bash -s -- all
+> # 方式二：多文件引导 + 显式指定 ref（不加 DEVKIT_REF 会去拉 main）
+> curl -fsSL https://cdn.jsdelivr.net/gh/jianghuifr/install@v1.0.1/bootstrap.sh | DEVKIT_REF=v1.0.1 bash -s -- all
+> ```
+>
+> **刚推完代码、CDN 还是旧内容？** 分支缓存要清一下（把路径换成要清的即可，可逗号分隔多个）：
+> ```bash
+> curl -s https://purge.jsdelivr.net/gh/jianghuifr/install@main/manifest.sha256
+> ```
+> 注意：**移动已有的 tag 不会刷新 CDN**，发布新版本请用新 tag（v1.0.2、v1.0.3…），或移动后逐个 purge。
 >
 > **安全**：`curl | bash` 天然有风险，所以 bootstrap 会**逐个文件校验 SHA256**（`manifest.sha256`），校验不过会换其它镜像重试，全部失败才中止；想跳过校验用 `DEVKIT_NO_VERIFY=1`（不推荐）。也可以先 `bash -s -- -n all` 只演练、不改系统。
 
@@ -206,12 +218,13 @@ devkit/
 ├── install.ps1         # Windows 入口
 ├── install.cmd         # Windows 可双击入口（注意：jsDelivr 不代理 .cmd，CDN 引导不含它）
 ├── manifest.sha256     # 分发文件的校验清单（tools/make-manifest.sh 生成，CI 自动更新）
-├── dist/               # 单文件自解压版（tools/build-standalone.sh 生成，CI 自动更新）
+├── dist/               # 单文件自解压版（由 CI 生成并提交，本机构建写 build-local/）
 │   ├── devkit-standalone.sh
 │   └── devkit-standalone.ps1
 ├── tools/
 │   ├── make-manifest.sh    # 生成 manifest.sha256
-│   ├── build-standalone.sh # 生成 dist/ 单文件版
+│   ├── build-standalone.sh # 生成 dist/ 单文件版（本机默认写 build-local/）
+│   ├── check-manifest.sh   # 校验 manifest 与内容一致（CI 会跑，防止发布自检不过的版本）
 │   └── lint-var-cjk.sh     # 防「变量后紧跟中文」的崩溃坑（CI 会跑）
 ├── .github/workflows/release.yml  # CI：语法/lint/演练 → 更新 manifest 与 dist → tag 发 Release
 ├── lib/
