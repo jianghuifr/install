@@ -48,7 +48,7 @@ $env:DEVKIT_ARGS='all'; irm https://cdn.jsdelivr.net/gh/jianghuifr/install@main/
 >
 > **`install.cmd` 不在 CDN 清单里**：jsDelivr 出于安全策略拒绝代理 `.cmd` / `.bat`（返回 HTTP 403），所以 `manifest.sha256` 不收录它，走 CDN 的引导不会拉这个文件（Windows 下直接用 `install.ps1` 即可）。想要双击入口就用 GitHub 的 Download ZIP 或 Pages 手动下载。
 >
-> **版本固定**：`@main` 是分支，CDN 有小时级缓存（改了可能要等一会儿生效）；要稳定复现就用 tag，例如 `@v1.0.0`（tag 路径基本永久缓存）。
+> **版本固定**：`@main` 是分支，CDN 有小时级缓存（改了可能要等一会儿生效）；要稳定复现就用 tag，例如 `@v1.0.1`（tag 路径基本永久缓存）。
 >
 > **安全**：`curl | bash` 天然有风险，所以 bootstrap 会**逐个文件校验 SHA256**（`manifest.sha256`），校验不过会换其它镜像重试，全部失败才中止；想跳过校验用 `DEVKIT_NO_VERIFY=1`（不推荐）。也可以先 `bash -s -- -n all` 只演练、不改系统。
 
