@@ -161,24 +161,32 @@ main() {
   [ "$total" -gt 0 ] || die "manifest.sha256 内容为空或格式不对"
   i "共 $total 个文件，开始下载到 $stage"
 
-  # 3) 逐文件下载 + 校验
-  local fail=0 line hash path
+  # 3) 逐文件下载 + 校验；某个文件在首选镜像上失败时，自动换其它镜像重试
+  local fail=0 line hash path alt got done_one
+  local cands; cands="$mirror $(mirror_list | tr '\n' ' ')"
   while IFS= read -r line; do
     case "$line" in ''|'#'*) continue ;; esac
     hash="${line%% *}"
     path="${line##* }"
     path="${path#\*}"; path="${path# }"
     mkdir -p "$stage/$(dirname "$path")"
-    if ! fetch "$mirror/$path" "$stage/$path" 25; then
-      w "下载失败：$path"
-      fail=$((fail + 1)); continue
-    fi
-    if [ "${DEVKIT_NO_VERIFY:-0}" != "1" ]; then
-      local got; got="$(sha256_of "$stage/$path")"
-      if [ -n "$got" ] && [ "$got" != "$hash" ]; then
-        w "校验不一致：${path}（期望 ${hash:0:12}…，实际 ${got:0:12}…）"
-        fail=$((fail + 1))
+    done_one=0
+    for alt in $cands; do
+      fetch "$alt/$path" "$stage/$path" 25 || continue
+      if [ "${DEVKIT_NO_VERIFY:-0}" != "1" ]; then
+        got="$(sha256_of "$stage/$path")"
+        if [ -n "$got" ] && [ "$got" != "$hash" ]; then
+          w "${path} 在 ${alt} 上校验不一致（期望 ${hash:0:12}…，实际 ${got:0:12}…），换镜像重试"
+          rm -f "$stage/$path"
+          continue
+        fi
       fi
+      done_one=1
+      break
+    done
+    if [ "$done_one" != "1" ]; then
+      w "所有镜像都取不到（或校验不过）：$path"
+      fail=$((fail + 1))
     fi
   done < "$mf"
 

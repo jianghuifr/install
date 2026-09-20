@@ -26,9 +26,30 @@ LIST="$WORK/list"
   ls lib/*.sh linux/*.sh mac/*.sh windows/*.ps1
 } | LC_ALL=C sort -u > "$LIST"
 
-# ---- 打包（COPYFILE_DISABLE 避免 macOS 塞进 ._ 元数据文件）----
-COPYFILE_DISABLE=1 tar -czf "$WORK/payload.tar.gz" -T "$LIST"
-( cd . && zip -q -X "$WORK/payload.zip" -@ < "$LIST" )
+# ---- 打包 ----
+# 关键：产物必须"可复现"（同一份源码 → 完全相同的字节），否则 CI 每次构建都
+# 会产出不同的 dist，从而每次 push 都多一个机器人提交。做法：
+#   1. 复制到暂存目录，把所有文件 mtime 统一（tar/zip 都会记录 mtime）
+#   2. tar 里把 uid/gid 归零（本机 uid 与 CI runner 不同会改变字节）
+#   3. gzip -9n（-n 不写入原始文件名与时间戳）
+STAGE="$WORK/stage"
+mkdir -p "$STAGE"
+while IFS= read -r f; do
+  [ -f "$f" ] || continue
+  mkdir -p "$STAGE/$(dirname "$f")"
+  cp "$f" "$STAGE/$f"
+done < "$LIST"
+find "$STAGE" -type f -exec touch -t 202001010000.00 {} + 2>/dev/null || true
+
+tar_emit() { # 在 $STAGE 里输出 tar 流（GNU tar 支持归零 uid/gid，bsdtar 自动降级）
+  if tar --version 2>/dev/null | head -1 | grep -qi 'gnu tar'; then
+    tar --format=ustar --owner=0 --group=0 --numeric-owner -cf - -T "$LIST"
+  else
+    tar -cf - -T "$LIST"
+  fi
+}
+( cd "$STAGE" && COPYFILE_DISABLE=1 tar_emit | gzip -9n ) > "$WORK/payload.tar.gz"
+( cd "$STAGE" && zip -q -X "$WORK/payload.zip" -@ < "$LIST" )
 
 mkdir -p dist
 B64_TAR="$WORK/payload.tar.gz.b64"

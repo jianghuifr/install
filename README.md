@@ -46,9 +46,11 @@ $env:DEVKIT_ARGS='all'; irm https://cdn.jsdelivr.net/gh/jianghuifr/install@main/
 
 > **关于 GitHub Pages**：`*.github.io` 在国内经常解析不到或被墙，所以它只当"手动下载"的兜底，别当主通道。主通道用 jsDelivr（国内多数网络可直连），实在不行再自建反代（Cloudflare Worker / Netlify 反代 jsDelivr 或 raw.githubusercontent）。
 >
+> **`install.cmd` 不在 CDN 清单里**：jsDelivr 出于安全策略拒绝代理 `.cmd` / `.bat`（返回 HTTP 403），所以 `manifest.sha256` 不收录它，走 CDN 的引导不会拉这个文件（Windows 下直接用 `install.ps1` 即可）。想要双击入口就用 GitHub 的 Download ZIP 或 Pages 手动下载。
+>
 > **版本固定**：`@main` 是分支，CDN 有小时级缓存（改了可能要等一会儿生效）；要稳定复现就用 tag，例如 `@v1.0.0`（tag 路径基本永久缓存）。
 >
-> **安全**：`curl | bash` 天然有风险，所以 bootstrap 会**逐个文件校验 SHA256**（`manifest.sha256`），校验不过直接中止；想跳过用 `DEVKIT_NO_VERIFY=1`（不推荐）。也可以先 `bash -s -- -n all` 只演练、不改系统。
+> **安全**：`curl | bash` 天然有风险，所以 bootstrap 会**逐个文件校验 SHA256**（`manifest.sha256`），校验不过会换其它镜像重试，全部失败才中止；想跳过校验用 `DEVKIT_NO_VERIFY=1`（不推荐）。也可以先 `bash -s -- -n all` 只演练、不改系统。
 
 ---
 
@@ -202,7 +204,7 @@ devkit/
 ├── install.sh          # macOS / Linux 入口（自动识别系统）
 ├── install.command     # macOS 可双击入口
 ├── install.ps1         # Windows 入口
-├── install.cmd         # Windows 可双击入口（自动绕过执行策略）
+├── install.cmd         # Windows 可双击入口（注意：jsDelivr 不代理 .cmd，CDN 引导不含它）
 ├── manifest.sha256     # 分发文件的校验清单（tools/make-manifest.sh 生成，CI 自动更新）
 ├── dist/               # 单文件自解压版（tools/build-standalone.sh 生成，CI 自动更新）
 │   ├── devkit-standalone.sh

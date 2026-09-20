@@ -1,4 +1,4 @@
-# ============================================================
+﻿# ============================================================
 #  devkit bootstrap（Windows / PowerShell）
 #
 #  作用：从 CDN / GitHub 镜像把整套脚本拉到临时目录，逐个校验 SHA256，
@@ -155,8 +155,9 @@ try {
         if ($entries.Count -eq 0) { throw 'manifest.sha256 内容为空' }
         Write-I "共 $($entries.Count) 个文件，开始下载到 $stage"
 
-        # 3) 逐文件下载 + 校验
+        # 3) 逐文件下载 + 校验；首选镜像失败时自动换其它镜像重试
         $fail = 0
+        $cands = @($mirror) + (Get-Mirrors) | Select-Object -Unique
         foreach ($line in $entries) {
             $parts = $line -split '\s+', 2
             if ($parts.Count -lt 2) { continue }
@@ -165,14 +166,21 @@ try {
             $dest = Join-Path $stage ($path -replace '/', '\')
             $dir = Split-Path -Parent $dest
             if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
-            if (-not (Get-Url "$mirror/$path" $dest 25)) { Write-W "下载失败：$path"; $fail++; continue }
-            if ($env:DEVKIT_NO_VERIFY -ne '1') {
-                $got = Get-Sha256 $dest
-                if ($got -and $got -ne $hash) {
-                    Write-W "校验不一致：${path}（期望 $($hash.Substring(0,12))…，实际 $($got.Substring(0,12))…）"
-                    $fail++
+            $okOne = $false
+            foreach ($alt in $cands) {
+                if (-not (Get-Url "$alt/$path" $dest 25)) { continue }
+                if ($env:DEVKIT_NO_VERIFY -ne '1') {
+                    $got = Get-Sha256 $dest
+                    if ($got -and $got -ne $hash) {
+                        Write-W "$path 在 $alt 上校验不一致，换镜像重试"
+                        Remove-Item $dest -Force -ErrorAction SilentlyContinue
+                        continue
+                    }
                 }
+                $okOne = $true
+                break
             }
+            if (-not $okOne) { Write-W "所有镜像都取不到（或校验不过）：$path"; $fail++ }
         }
         if ($fail -gt 0) {
             Write-E "$fail 个文件下载或校验失败，已中止（避免跑到一半缺文件）。"

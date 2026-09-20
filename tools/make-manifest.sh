@@ -18,9 +18,11 @@ sha256_of() {
   fi
 }
 
+# 注意：不要收录 install.cmd —— jsDelivr 拒绝代理 .cmd/.bat（HTTP 403），
+# 收录它会让走 CDN 的 bootstrap 永远校验失败。它只在"下载 zip / Pages"路径里提供。
 LIST="$(mktemp)"
 {
-  printf '%s\n' install.sh install.command install.ps1 install.cmd README.md
+  printf '%s\n' install.sh install.command install.ps1 README.md
   ls lib/*.sh linux/*.sh mac/*.sh windows/*.ps1
 } | LC_ALL=C sort -u > "$LIST"
 
