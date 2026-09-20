@@ -7,6 +7,11 @@ name: devkit CI & Release
 #
 # 注意：manifest.sha256 必须先提交进仓库，tag 上的 CDN 路径才会有它。
 #       所以正常流程是：改代码 → push（CI 自动更新 manifest）→ 再打 tag。
+#
+# 坑：GitHub 判断"跳过 CI"是**纯文本匹配提交消息**，只要被 tag 指向的那个提交
+#     的消息里出现 skip ci / no ci 之类的字样，tag 推送也会被跳过。
+#     因此 release 支持手动触发（workflow_dispatch），随时可以按 tag 重建产物：
+#       gh workflow run release.yml -f tag=v1.0.1
 
 on:
   push:
@@ -14,6 +19,11 @@ on:
     tags: ['v*']
   pull_request:
   workflow_dispatch:
+    inputs:
+      tag:
+        description: '要发布/重建的 tag（例如 v1.0.1）；留空则用当前分支名'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -83,21 +93,26 @@ jobs:
 
   release:
     needs: verify
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: 生成校验清单与单文件版
         run: |
+          echo "发布 tag：$RELEASE_TAG"
           bash tools/make-manifest.sh
-          bash tools/build-standalone.sh "${GITHUB_REF_NAME}"
+          bash tools/build-standalone.sh "$RELEASE_TAG"
 
       - name: 打包（源码 zip + 单文件版）
         run: |
           mkdir -p out
           # 只打包需要分发的文件，和 manifest 保持一致
-          zip -q -r "out/devkit-${GITHUB_REF_NAME}.zip" \
+          zip -q -r "out/devkit-${RELEASE_TAG}.zip" \
             install.sh install.command install.ps1 install.cmd README.md manifest.sha256 \
             lib linux mac windows
           cp dist/devkit-standalone.sh dist/devkit-standalone.ps1 out/
@@ -106,6 +121,7 @@ jobs:
       - name: 发布 Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
           files: out/*
           generate_release_notes: true
           body: |
@@ -113,17 +129,17 @@ jobs:
 
             **macOS / Linux（多文件引导，走 CDN）**
             ```bash
-            curl -fsSL https://cdn.jsdelivr.net/gh/${{ github.repository }}@${{ github.ref_name }}/bootstrap.sh | bash -s -- all
+            curl -fsSL https://cdn.jsdelivr.net/gh/${{ github.repository }}@${{ env.RELEASE_TAG }}/bootstrap.sh | bash -s -- all
             ```
 
             **macOS / Linux（单文件自解压，弱网推荐）**
             ```bash
-            curl -fsSL https://cdn.jsdelivr.net/gh/${{ github.repository }}@${{ github.ref_name }}/dist/devkit-standalone.sh | bash -s -- all
+            curl -fsSL https://cdn.jsdelivr.net/gh/${{ github.repository }}@${{ env.RELEASE_TAG }}/dist/devkit-standalone.sh | bash -s -- all
             ```
 
             **Windows（PowerShell）**
             ```powershell
-            irm https://cdn.jsdelivr.net/gh/${{ github.repository }}@${{ github.ref_name }}/bootstrap.ps1 -OutFile b.ps1
+            irm https://cdn.jsdelivr.net/gh/${{ github.repository }}@${{ env.RELEASE_TAG }}/bootstrap.ps1 -OutFile b.ps1
             .\b.ps1 -Yes all
             ```
 
