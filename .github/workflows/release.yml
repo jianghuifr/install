@@ -1,0 +1,131 @@
+name: devkit CI & Release
+
+# 三个 job：
+#   verify   —— 每次 push / PR：bash 与 PowerShell 语法检查 + 演练模式冒烟测试
+#   manifest —— push 到主分支：重新生成 manifest.sha256 并提交（保证 CDN 上的校验清单最新）
+#   release  —— 打 tag（v*）：生成单文件自解压版 + zip，发布到 GitHub Release
+#
+# 注意：manifest.sha256 必须先提交进仓库，tag 上的 CDN 路径才会有它。
+#       所以正常流程是：改代码 → push（CI 自动更新 manifest）→ 再打 tag。
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: bash 语法检查
+        run: |
+          fail=0
+          for f in install.sh bootstrap.sh lib/*.sh linux/*.sh mac/*.sh tools/*.sh; do
+            bash -n "$f" || { echo "FAIL $f"; fail=1; }
+          done
+          exit $fail
+
+      - name: lint（禁止「变量后紧跟非 ASCII」，该写法会在 LC_ALL=C 下崩溃）
+        run: bash tools/lint-var-cjk.sh
+
+      - name: shellcheck（有则跑，不阻塞）
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck || true
+          shellcheck -S warning install.sh bootstrap.sh lib/*.sh linux/*.sh mac/*.sh tools/*.sh || true
+
+      - name: PowerShell 语法检查
+        shell: pwsh
+        run: |
+          $bad = 0
+          Get-ChildItem -Recurse -Include *.ps1 | ForEach-Object {
+            $t = $null; $e = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$t, [ref]$e) | Out-Null
+            if ($e.Count) { Write-Host "FAIL $($_.Name): $($e[0].Message)"; $bad++ }
+          }
+          if ($bad) { exit 1 }
+
+      - name: 演练模式冒烟测试（不真正改动系统）
+        run: |
+          ./install.sh -n list
+          for t in mirrors node python rust docker jdk codex dsh claude; do
+            ./install.sh -n "$t" || echo "（$t 在 CI 环境里跳过属正常）"
+          done
+          ./install.sh check || true
+
+  manifest:
+    needs: verify
+    if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 重新生成 manifest.sha256 与单文件自解压版
+        run: |
+          bash tools/make-manifest.sh
+          bash tools/build-standalone.sh "${GITHUB_REF_NAME}"
+      - name: 有变化则提交
+        run: |
+          if git diff --quiet -- manifest.sha256 dist/; then
+            echo "manifest / dist 无变化"
+          else
+            git config user.name  "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add manifest.sha256 dist/
+            git commit -m "chore: 更新 manifest.sha256 与 dist 单文件版 [skip ci]"
+            git push
+          fi
+
+  release:
+    needs: verify
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 生成校验清单与单文件版
+        run: |
+          bash tools/make-manifest.sh
+          bash tools/build-standalone.sh "${GITHUB_REF_NAME}"
+
+      - name: 打包（源码 zip + 单文件版）
+        run: |
+          mkdir -p out
+          # 只打包需要分发的文件，和 manifest 保持一致
+          zip -q -r "out/devkit-${GITHUB_REF_NAME}.zip" \
+            install.sh install.command install.ps1 install.cmd README.md manifest.sha256 \
+            lib linux mac windows
+          cp dist/devkit-standalone.sh dist/devkit-standalone.ps1 out/
+          ls -lh out
+
+      - name: 发布 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
+          generate_release_notes: true
+          body: |
+            ## 一键安装
+
+            **macOS / Linux（多文件引导，走 CDN）**
+            ```bash
+            curl -fsSL https://cdn.jsdelivr.net/gh/${{ github.repository }}@${{ github.ref_name }}/bootstrap.sh | bash -s -- all
+            ```
+
+            **macOS / Linux（单文件自解压，弱网推荐）**
+            ```bash
+            curl -fsSL https://cdn.jsdelivr.net/gh/${{ github.repository }}@${{ github.ref_name }}/dist/devkit-standalone.sh | bash -s -- all
+            ```
+
+            **Windows（PowerShell）**
+            ```powershell
+            irm https://cdn.jsdelivr.net/gh/${{ github.repository }}@${{ github.ref_name }}/bootstrap.ps1 -OutFile b.ps1
+            .\b.ps1 -Yes all
+            ```
+
+            把 `all` 换成 `mirrors node python rust docker jdk codex dsh claude` 里的任意组合即可只装部分；
+            加 `-n`（Windows 用 `-DryRun`）先演练、不改动系统。
