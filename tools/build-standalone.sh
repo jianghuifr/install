@@ -51,7 +51,14 @@ tar_emit() { # 在 $STAGE 里输出 tar 流（GNU tar 支持归零 uid/gid，bsd
 ( cd "$STAGE" && COPYFILE_DISABLE=1 tar_emit | gzip -9n ) > "$WORK/payload.tar.gz"
 ( cd "$STAGE" && zip -q -X "$WORK/payload.zip" -@ < "$LIST" )
 
-mkdir -p dist
+# 产物目录：CI 里写 dist/（仓库对外提供的那份）；本机默认写 build-local/，
+# 因为 GNU tar（CI）与 bsdtar（macOS）产出的字节不同，本机覆盖 dist 会造成无意义 diff。
+OUT_DIR="${DEVKIT_OUT_DIR:-dist}"
+if [ -z "${CI:-}" ] && [ "${DEVKIT_ALLOW_LOCAL_DIST:-0}" != "1" ]; then
+  OUT_DIR="${DEVKIT_OUT_DIR:-build-local}"
+fi
+mkdir -p "$OUT_DIR"
+echo "产物目录：$OUT_DIR${CI:+（CI 环境）}"
 B64_TAR="$WORK/payload.tar.gz.b64"
 B64_ZIP="$WORK/payload.zip.b64"
 base64 < "$WORK/payload.tar.gz" > "$B64_TAR"
@@ -132,8 +139,8 @@ echo "────────────────────────�
 [ "$DEVKIT_KEEP" = "1" ] && echo "已按 --keep 保留目录：$stage" || echo "解压目录已清理（想保留：--keep 或 DEVKIT_KEEP=1）"
 exit $rc
 FOOTER
-} | sed "s|__DEVKIT_REF__|${REF}|" > dist/devkit-standalone.sh
-chmod +x dist/devkit-standalone.sh
+} | sed "s|__DEVKIT_REF__|${REF}|" > "$OUT_DIR/devkit-standalone.sh"
+chmod +x "$OUT_DIR/devkit-standalone.sh"
 
 # ============================================================
 #  dist/devkit-standalone.ps1
@@ -209,8 +216,8 @@ try {
     }
 }
 FOOTER
-} | sed "s|__DEVKIT_REF__|${REF}|" > dist/devkit-standalone.ps1
+} | sed "s|__DEVKIT_REF__|${REF}|" > "$OUT_DIR/devkit-standalone.ps1"
 
 printf '\n生成完成（版本 %s）：\n' "$REF"
-ls -lh dist | tail -n +2 | awk '{printf "  %-32s %s\n", $NF, $5}'
+ls -lh "$OUT_DIR" | tail -n +2 | awk '{printf "  %-32s %s\n", $NF, $5}'
 printf '\n提示：单文件版把脚本内容内联在文件里，改完源码要重新生成一次。\n'

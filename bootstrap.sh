@@ -192,7 +192,9 @@ main() {
 
   if [ "$fail" -gt 0 ]; then
     e "$fail 个文件下载或校验失败，已中止（避免跑到一半缺文件）。"
-    e "重试一次通常就好；也可指定其它镜像：DEVKIT_MIRRORS=\"...\" bash bootstrap.sh"
+    e "常见原因：1) CDN 分支缓存未刷新（清一下：https://purge.jsdelivr.net/gh/\${DEVKIT_REPO}@\${DEVKIT_REF}/manifest.sha256）"
+    e "          2) 镜像内容不一致（换镜像重试即可，脚本已自动尝试过其它镜像）"
+    e "          3) 指定了与内容不匹配的版本（检查 DEVKIT_REF 是否用了正确的 tag）"
     [ "$DEVKIT_KEEP" = "1" ] && e "已保留目录：$stage"
     exit 1
   fi

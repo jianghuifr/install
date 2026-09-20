@@ -45,6 +45,9 @@ jobs:
       - name: lint（禁止「变量后紧跟非 ASCII」，该写法会在 LC_ALL=C 下崩溃）
         run: bash tools/lint-var-cjk.sh
 
+      - name: manifest 与内容一致性检查（tag 打错提交会在这里被拦住）
+        run: bash tools/check-manifest.sh
+
       - name: shellcheck（有则跑，不阻塞）
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck || true
@@ -101,6 +104,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
+
+      - name: 发布前检查（提交里的 manifest 必须与内容一致）
+        run: bash tools/check-manifest.sh
 
       - name: 生成校验清单与单文件版
         run: |
